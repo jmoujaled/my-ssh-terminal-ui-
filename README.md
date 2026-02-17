@@ -1,20 +1,21 @@
 # SSH Terminal Web UI
 
-A browser-based SSH client for remotely managing a macOS home server. Connect from any device with a browser — no native SSH client needed.
+A browser-based SSH client for remotely managing any server with SSH enabled. Connect from any device with a browser — no native SSH client needed.
 
-Built as a lightweight alternative to tools like Apple Screen Sharing for running terminal commands remotely, whether over Tailscale VPN or local LAN.
+Works with any SSH target — macOS, Linux, cloud VPS (Hostinger, DigitalOcean, AWS, etc.), Raspberry Pi, or any machine running an SSH server. Built as a lightweight alternative to native SSH clients and tools like Apple Screen Sharing.
 
 ---
 
 ## Purpose
 
-Manage a macOS home server from anywhere through a real terminal experience in the browser. Designed for:
+Manage any server from anywhere through a real terminal experience in the browser. Designed for:
 
+- **Local servers** — macOS/Linux machines over LAN (e.g. `192.x.x.x`) or Tailscale VPN (e.g. `100.x.x.x`)
+- **Cloud VPS** — Hostinger, DigitalOcean, AWS EC2, Linode, Hetzner, or any provider with SSH access
 - Running system administration commands (disk, memory, processes)
 - Managing Docker containers and compose stacks
 - Monitoring and controlling OpenClaw gateway services
 - Quick access to frequently used commands via a sidebar
-- Accessing the server over Tailscale (e.g. `100.x.x.x`) or LAN (e.g. `192.x.x.x`)
 
 ---
 
@@ -77,12 +78,17 @@ xterm.js (browser)  <-->  WebSocket  <-->  FastAPI  <-->  Paramiko channel (SSH 
 
 ```
 simple ssh ui/
-├── app.py                  # FastAPI server (WebSocket SSH proxy + REST API)
-├── ssh_manager.py          # Paramiko SSH wrapper (connect, read, write, resize)
-├── saved_commands.json     # Saved commands data (JSON)
-├── requirements.txt        # Python dependencies
+├── app.py                              # FastAPI server (WebSocket SSH proxy + REST API)
+├── ssh_manager.py                      # Paramiko SSH wrapper (connect, read, write, resize)
+├── saved_commands.json                 # Saved commands data (JSON)
+├── requirements.txt                    # Python dependencies
+├── com.user.ssh-terminal-ui.plist      # macOS LaunchAgent (auto-start on boot)
+├── RUNBOOK.md                          # Operations runbook (start/stop/logs/troubleshooting)
 ├── static/
-│   └── index.html          # Full UI (HTML + CSS + JavaScript, single file)
+│   └── index.html                      # Full UI (HTML + CSS + JavaScript, single file)
+├── logs/
+│   ├── stdout.log                      # Application stdout (created at runtime)
+│   └── stderr.log                      # Application stderr (created at runtime)
 └── README.md
 ```
 
@@ -161,20 +167,52 @@ cd "simple ssh ui"
 pip install -r requirements.txt
 ```
 
-### Run
+### Option 1: Run locally (manual)
+
+Run it on demand from the terminal. Good for development or one-off use:
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000
+python3 -m uvicorn app:app --reload --host 0.0.0.0 --port 8080
 ```
 
-Then open `http://localhost:8000` in your browser.
+Then open `http://localhost:8080` in your browser. The `--reload` flag auto-restarts the server when you edit code.
+
+### Option 2: Install as a LaunchAgent (always running)
+
+If you want the SSH Terminal UI to start automatically every time you log in and stay running in the background, install it as a macOS LaunchAgent. This runs on **port 2222** to avoid conflicts with dev servers (3000, 5173, 8000, 8080) and OpenClaw (18789).
+
+```bash
+# Create the logs directory
+mkdir -p "/Users/user/Dev/simple ssh ui/logs"
+
+# Copy the plist to LaunchAgents
+cp com.user.ssh-terminal-ui.plist ~/Library/LaunchAgents/
+
+# Load and start the service
+launchctl load ~/Library/LaunchAgents/com.user.ssh-terminal-ui.plist
+```
+
+Then open `http://localhost:2222` in your browser — it's always available.
+
+See **[RUNBOOK.md](RUNBOOK.md)** for all management commands (start, stop, restart, logs, troubleshooting).
 
 ### Connect
 
-1. Enter your server's IP address (Tailscale or LAN)
+1. Enter your server's IP address or hostname
 2. Enter port (default: `22`)
 3. Enter your username and password
 4. Click **Connect**
+
+Works with any SSH target:
+
+| Server type | Host example | Username |
+|-------------|-------------|----------|
+| Local Mac (LAN) | `192.168.1.249` | `jalel` |
+| Local Mac (Tailscale) | `100.108.x.x` | `jalel` |
+| Hostinger VPS | `154.41.x.x` | `root` |
+| DigitalOcean Droplet | `167.99.x.x` | `root` |
+| AWS EC2 | `ec2-xx-xx.compute.amazonaws.com` | `ubuntu` |
+| Raspberry Pi | `192.168.1.x` | `pi` |
 
 ---
 
