@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSH Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Connection Bar --- */
+        .connection-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            flex-wrap: wrap;
+        }
+
+        .connection-bar label {
+            font-size: 11px;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .connection-bar input {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .connection-bar input:focus {
+            border-color: #58a6ff;
+        }
+
+        .host-input { width: 160px; }
+        .port-input { width: 55px; }
+        .user-input { width: 110px; }
+        .pass-input { width: 150px; }
+
+        .btn {
+            padding: 5px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .btn-connect { background: #238636; color: #fff; }
+        .btn-connect:hover { background: #2ea043; }
+        .btn-disconnect { background: #da3633; color: #fff; }
+        .btn-disconnect:hover { background: #f85149; }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-left: auto;
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #484f58;
+        }
+
+        .status-dot.connected {
+            background: #3fb950;
+            box-shadow: 0 0 6px #3fb950;
+        }
+
+        .status-dot.connecting {
+            background: #d29922;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* --- Main Layout --- */
+        .main-layout {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* --- Sidebar --- */
+        .sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 10px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-add {
+            background: #21262d;
+            color: #58a6ff;
+            border: 1px solid #30363d;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .btn-add:hover { background: #30363d; }
+
+        .sidebar-commands {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 0;
+        }
+
+        .sidebar-commands::-webkit-scrollbar { width: 6px; }
+        .sidebar-commands::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+        .cmd-category {
+            padding: 6px 14px 2px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #58a6ff;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            user-select: none;
+        }
+
+        .cmd-category:hover {
+            color: #79c0ff;
+        }
+
+        .cmd-category .chevron {
+            font-size: 8px;
+            transition: transform 0.2s;
+            display: inline-block;
+        }
+
+        .cmd-category.collapsed .chevron {
+            transform: rotate(-90deg);
+        }
+
+        .cmd-group-items {
+            overflow: hidden;
+            transition: max-height 0.25s ease;
+        }
+
+        .cmd-group-items.collapsed {
+            max-height: 0 !important;
+        }
+
+        .cmd-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 14px 4px 20px;
+            cursor: pointer;
+            font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            color: #c9d1d9;
+            transition: background 0.1s;
+        }
+
+        .cmd-item:hover { background: #21262d; }
+
+        .cmd-item .cmd-label {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .cmd-item .cmd-delete {
+            opacity: 0;
+            background: none;
+            border: none;
+            color: #f85149;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0 3px;
+        }
+
+        .cmd-item:hover .cmd-delete { opacity: 1; }
+
+        /* --- Terminal Area --- */
+        .terminal-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #terminal {
+            flex: 1;
+            padding: 4px;
+        }
+
+        #terminal .xterm {
+            height: 100%;
+        }
+
+        /* --- Add Command Modal --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            width: 400px;
+            max-width: 90vw;
+        }
+
+        .modal h3 {
+            margin-bottom: 16px;
+            font-size: 16px;
+            color: #e6edf3;
+        }
+
+        .modal-field { margin-bottom: 12px; }
+
+        .modal-field label {
+            display: block;
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+
+        .modal-field input {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .modal-field input:focus { border-color: #58a6ff; }
+
+        /* Category combo-box */
+        .combo-wrapper {
+            position: relative;
+        }
+
+        .combo-wrapper input {
+            width: 100%;
+        }
+
+        .combo-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            max-height: 160px;
+            overflow-y: auto;
+            z-index: 200;
+        }
+
+        .combo-dropdown.open { display: block; }
+
+        .combo-option {
+            padding: 6px 10px;
+            font-size: 13px;
+            color: #c9d1d9;
+            cursor: pointer;
+        }
+
+        .combo-option:hover,
+        .combo-option.highlighted {
+            background: #21262d;
+            color: #58a6ff;
+        }
+
+        .combo-dropdown::-webkit-scrollbar { width: 6px; }
+        .combo-dropdown::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        }
+
+        .btn-cancel { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+        .btn-cancel:hover { background: #30363d; }
+        .btn-save { background: #238636; color: #fff; }
+        .btn-save:hover { background: #2ea043; }
+
+        /* --- Welcome overlay --- */
+        .welcome-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #484f58;
+            font-size: 14px;
+            text-align: center;
+            line-height: 1.8;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .welcome-overlay .title {
+            font-size: 20px;
+            color: #58a6ff;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .welcome-overlay.hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Connection Bar -->
+    <div class="connection-bar">
+        <label>Host</label>
+        <input type="text" id="host" class="host-input" placeholder="192.168.1.100">
+        <label>Port</label>
+        <input type="text" id="port" class="port-input" value="22">
+        <label>User</label>
+        <input type="text" id="username" class="user-input" placeholder="username">
+        <label>Password</label>
+        <input type="password" id="password" class="pass-input" placeholder="password">
+        <button id="connectBtn" class="btn btn-connect" onclick="toggleConnection()">Connect</button>
+        <div class="status-indicator">
+            <div id="statusDot" class="status-dot"></div>
+            <span id="statusText">Disconnected</span>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                Saved Commands
+                <button class="btn-add" onclick="openAddModal()">+ Add</button>
+            </div>
+            <div id="sidebarCommands" class="sidebar-commands"></div>
+        </div>
+
+        <!-- Terminal Area -->
+        <div class="terminal-area" style="position: relative;">
+            <div id="welcomeOverlay" class="welcome-overlay">
+                <div>
+                    <div class="title">SSH Terminal</div>
+                    Enter your server details above and click Connect.<br>
+                    Click saved commands on the left to type them into the terminal.
+                </div>
+            </div>
+            <div id="terminal"></div>
+        </div>
+    </div>
+
+    <!-- Add Command Modal -->
+    <div id="addModal" class="modal-overlay" onclick="if(event.target===this)closeAddModal()">
+        <div class="modal">
+            <h3>Add Saved Command</h3>
+            <div class="modal-field">
+                <label>Label</label>
+                <input type="text" id="newCmdLabel" placeholder="e.g. Check disk space">
+            </div>
+            <div class="modal-field">
+                <label>Command</label>
+                <input type="text" id="newCmdCmd" placeholder="e.g. df -h">
+            </div>
+            <div class="modal-field">
+                <label>Category</label>
+                <div class="combo-wrapper" id="categoryCombo">
+                    <input type="text" id="newCmdCategory" placeholder="Type or select a category" autocomplete="off">
+                    <div class="combo-dropdown" id="categoryDropdown"></div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeAddModal()">Cancel</button>
+                <button class="btn btn-save" onclick="saveNewCommand()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- xterm.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+
+    <script>
+        // --- Terminal setup ---
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace",
+            theme: {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+                cursor: '#58a6ff',
+                selectionBackground: '#264f78',
+                black: '#484f58',
+                red: '#ff7b72',
+                green: '#3fb950',
+                yellow: '#d29922',
+                blue: '#58a6ff',
+                magenta: '#bc8cff',
+                cyan: '#39d353',
+                white: '#c9d1d9',
+                brightBlack: '#6e7681',
+                brightRed: '#ffa198',
+                brightGreen: '#56d364',
+                brightYellow: '#e3b341',
+                brightBlue: '#79c0ff',
+                brightMagenta: '#d2a8ff',
+                brightCyan: '#56d364',
+                brightWhite: '#f0f6fc',
+            },
+            allowProposedApi: true,
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(webLinksAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        // Resize terminal when window resizes
+        const resizeObserver = new ResizeObserver(() => {
+            fitAddon.fit();
+            if (ws && isConnected) {
+                ws.send(JSON.stringify({
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            }
+        });
+        resizeObserver.observe(document.getElementById('terminal'));
+
+        // --- State ---
+        let ws = null;
+        let isConnected = false;
+
+        // --- Load saved connection from localStorage ---
+        (function loadSaved() {
+            const saved = localStorage.getItem('ssh_connection');
+            if (saved) {
+                const data = JSON.parse(saved);
+                if (data.host) document.getElementById('host').value = data.host;
+                if (data.port) document.getElementById('port').value = data.port;
+                if (data.username) document.getElementById('username').value = data.username;
+            }
+        })();
+
+        // --- Connection ---
+        function toggleConnection() {
+            if (isConnected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        }
+
+        function connect() {
+            const host = document.getElementById('host').value.trim();
+            const port = document.getElementById('port').value.trim() || '22';
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!host || !username) {
+                term.writeln('\r\n\x1b[31mPlease enter host and username\x1b[0m');
+                return;
+            }
+
+            localStorage.setItem('ssh_connection', JSON.stringify({ host, port, username }));
+
+            setStatus('connecting');
+            term.clear();
+            document.getElementById('welcomeOverlay').classList.add('hidden');
+            term.writeln(`\x1b[34mConnecting to ${username}@${host}:${port}...\x1b[0m\r`);
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws/ssh`);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({
+                    type: 'connect',
+                    host, port: parseInt(port), username, password,
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            };
+
+            ws.onmessage = (event) => {
+                const data = event.data;
+
+                // Try to parse as JSON (control messages)
+                try {
+                    const msg = JSON.parse(data);
+                    if (msg.type === 'connected') {
+                        isConnected = true;
+                        setStatus('connected');
+                        term.clear();
+                        term.focus();
+                        return;
+                    }
+                    if (msg.type === 'error') {
+                        term.writeln(`\r\n\x1b[31mError: ${msg.data}\x1b[0m`);
+                        if (!isConnected) setStatus('disconnected');
+                        return;
+                    }
+                    if (msg.type === 'disconnected') {
+                        handleDisconnect();
+                        return;
+                    }
+                } catch (e) {
+                    // Not JSON — it's raw terminal output
+                }
+
+                // Raw terminal output — write directly to xterm.js
+                term.write(data);
+            };
+
+            ws.onclose = () => {
+                if (isConnected) {
+                    handleDisconnect();
+                    term.writeln('\r\n\x1b[34mConnection closed\x1b[0m');
+                }
+            };
+
+            ws.onerror = () => {
+                term.writeln('\r\n\x1b[31mWebSocket error — is the server running?\x1b[0m');
+                setStatus('disconnected');
+            };
+        }
+
+        // Forward keystrokes from xterm.js to the WebSocket
+        term.onData((data) => {
+            if (ws && isConnected) {
+                ws.send(JSON.stringify({ type: 'input', data: data }));
+            }
+        });
+
+        function disconnect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'disconnect' }));
+            } else {
+                handleDisconnect();
+            }
+        }
+
+        function handleDisconnect() {
+            isConnected = false;
+            setStatus('disconnected');
+            term.writeln('\r\n\x1b[34mDisconnected\x1b[0m');
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function setStatus(state) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            const btn = document.getElementById('connectBtn');
+
+            dot.className = 'status-dot';
+            if (state === 'connected') {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+                btn.textContent = 'Disconnect';
+                btn.className = 'btn btn-disconnect';
+                btn.disabled = false;
+            } else if (state === 'connecting') {
+                dot.classList.add('connecting');
+                text.textContent = 'Connecting...';
+                btn.disabled = true;
+            } else {
+                text.textContent = 'Disconnected';
+                btn.textContent = 'Connect';
+                btn.className = 'btn btn-connect';
+                btn.disabled = false;
+            }
+        }
+
+        // --- Saved Commands ---
+        let savedCommands = [];
+
+        async function loadCommands() {
+            try {
+                const res = await fetch('/api/commands');
+                savedCommands = await res.json();
+                renderCommands();
+            } catch (e) {
+                console.error('Failed to load commands:', e);
+            }
+        }
+
+        // Track collapsed state per category
+        const collapsedCategories = JSON.parse(localStorage.getItem('collapsed_categories') || '{}');
+
+        function saveCollapsedState() {
+            localStorage.setItem('collapsed_categories', JSON.stringify(collapsedCategories));
+        }
+
+        function toggleCategory(category, catDiv, itemsDiv) {
+            const isCollapsed = collapsedCategories[category];
+            if (isCollapsed) {
+                delete collapsedCategories[category];
+                catDiv.classList.remove('collapsed');
+                itemsDiv.classList.remove('collapsed');
+                itemsDiv.style.maxHeight = itemsDiv.scrollHeight + 'px';
+            } else {
+                collapsedCategories[category] = true;
+                catDiv.classList.add('collapsed');
+                itemsDiv.style.maxHeight = '0px';
+                itemsDiv.classList.add('collapsed');
+            }
+            saveCollapsedState();
+        }
+
+        function getCategories() {
+            const cats = new Set();
+            for (const cmd of savedCommands) {
+                cats.add(cmd.category || 'General');
+            }
+            return [...cats];
+        }
+
+        function renderCommands() {
+            const container = document.getElementById('sidebarCommands');
+            container.innerHTML = '';
+
+            const groups = {};
+            for (const cmd of savedCommands) {
+                const cat = cmd.category || 'General';
+                if (!groups[cat]) groups[cat] = [];
+                groups[cat].push(cmd);
+            }
+
+            for (const [category, cmds] of Object.entries(groups)) {
+                const isCollapsed = collapsedCategories[category];
+
+                const catDiv = document.createElement('div');
+                catDiv.className = 'cmd-category' + (isCollapsed ? ' collapsed' : '');
+                catDiv.innerHTML = `<span class="chevron">▼</span> ${escapeHtml(category)} <span style="color:#484f58;font-weight:400;margin-left:auto;">${cmds.length}</span>`;
+
+                const itemsDiv = document.createElement('div');
+                itemsDiv.className = 'cmd-group-items' + (isCollapsed ? ' collapsed' : '');
+
+                catDiv.addEventListener('click', () => toggleCategory(category, catDiv, itemsDiv));
+                container.appendChild(catDiv);
+
+                for (const cmd of cmds) {
+                    const item = document.createElement('div');
+                    item.className = 'cmd-item';
+                    item.title = cmd.cmd;
+                    item.innerHTML = `
+                        <span class="cmd-label">${escapeHtml(cmd.label || cmd.cmd)}</span>
+                        <button class="cmd-delete" onclick="event.stopPropagation(); deleteCommand('${cmd.id}')" title="Delete">&times;</button>
+                    `;
+                    item.addEventListener('click', () => {
+                        if (ws && isConnected) {
+                            ws.send(JSON.stringify({ type: 'input', data: cmd.cmd }));
+                            term.focus();
+                        }
+                    });
+                    itemsDiv.appendChild(item);
+                }
+
+                container.appendChild(itemsDiv);
+
+                // Set proper max-height after render for animation
+                if (!isCollapsed) {
+                    requestAnimationFrame(() => {
+                        itemsDiv.style.maxHeight = itemsDiv.scrollHeight + 'px';
+                    });
+                }
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function deleteCommand(id) {
+            try {
+                await fetch(`/api/commands/${id}`, { method: 'DELETE' });
+                await loadCommands();
+            } catch (e) {
+                console.error('Failed to delete command:', e);
+            }
+        }
+
+        // --- Add Command Modal ---
+        let comboHighlight = -1;
+
+        function openAddModal() {
+            document.getElementById('addModal').classList.add('active');
+            document.getElementById('newCmdLabel').value = '';
+            document.getElementById('newCmdCmd').value = '';
+            document.getElementById('newCmdCategory').value = '';
+            closeCategoryDropdown();
+            document.getElementById('newCmdLabel').focus();
+        }
+
+        function closeAddModal() {
+            document.getElementById('addModal').classList.remove('active');
+            closeCategoryDropdown();
+        }
+
+        // Category combo-box logic
+        function buildCategoryDropdown(filter = '') {
+            const dropdown = document.getElementById('categoryDropdown');
+            const categories = getCategories();
+            const lowerFilter = filter.toLowerCase();
+            const filtered = filter
+                ? categories.filter(c => c.toLowerCase().includes(lowerFilter))
+                : categories;
+
+            dropdown.innerHTML = '';
+            comboHighlight = -1;
+
+            if (filtered.length === 0) {
+                closeCategoryDropdown();
+                return;
+            }
+
+            filtered.forEach((cat, i) => {
+                const opt = document.createElement('div');
+                opt.className = 'combo-option';
+                opt.textContent = cat;
+                opt.addEventListener('mousedown', (e) => {
+                    e.preventDefault(); // prevent blur
+                    document.getElementById('newCmdCategory').value = cat;
+                    closeCategoryDropdown();
+                });
+                dropdown.appendChild(opt);
+            });
+
+            dropdown.classList.add('open');
+        }
+
+        function closeCategoryDropdown() {
+            document.getElementById('categoryDropdown').classList.remove('open');
+            comboHighlight = -1;
+        }
+
+        function highlightComboOption(index) {
+            const dropdown = document.getElementById('categoryDropdown');
+            const options = dropdown.querySelectorAll('.combo-option');
+            options.forEach(o => o.classList.remove('highlighted'));
+            if (index >= 0 && index < options.length) {
+                options[index].classList.add('highlighted');
+                options[index].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        const catInput = document.getElementById('newCmdCategory');
+
+        catInput.addEventListener('focus', () => {
+            buildCategoryDropdown(catInput.value);
+        });
+
+        catInput.addEventListener('input', () => {
+            buildCategoryDropdown(catInput.value);
+        });
+
+        catInput.addEventListener('blur', () => {
+            // Small delay so mousedown on option fires first
+            setTimeout(() => closeCategoryDropdown(), 150);
+        });
+
+        catInput.addEventListener('keydown', (e) => {
+            const dropdown = document.getElementById('categoryDropdown');
+            const options = dropdown.querySelectorAll('.combo-option');
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (!dropdown.classList.contains('open')) {
+                    buildCategoryDropdown(catInput.value);
+                }
+                comboHighlight = Math.min(comboHighlight + 1, options.length - 1);
+                highlightComboOption(comboHighlight);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                comboHighlight = Math.max(comboHighlight - 1, 0);
+                highlightComboOption(comboHighlight);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (comboHighlight >= 0 && comboHighlight < options.length) {
+                    catInput.value = options[comboHighlight].textContent;
+                    closeCategoryDropdown();
+                } else {
+                    // Enter on category field = save command
+                    saveNewCommand();
+                }
+            } else if (e.key === 'Escape') {
+                closeCategoryDropdown();
+            } else if (e.key === 'Tab') {
+                closeCategoryDropdown();
+            }
+        });
+
+        async function saveNewCommand() {
+            const label = document.getElementById('newCmdLabel').value.trim();
+            const cmd = document.getElementById('newCmdCmd').value.trim();
+            const category = document.getElementById('newCmdCategory').value.trim() || 'General';
+
+            if (!label || !cmd) return;
+
+            try {
+                await fetch('/api/commands', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ label, cmd, category })
+                });
+                closeAddModal();
+                await loadCommands();
+            } catch (e) {
+                console.error('Failed to save command:', e);
+            }
+        }
+
+        document.getElementById('newCmdCmd').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') saveNewCommand();
+        });
+
+        // Load commands on page load
+        loadCommands();
+    </script>
+</body>
+</html>

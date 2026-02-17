@@ -1,0 +1,212 @@
+[
+  {
+    "id": "sys001",
+    "label": "Who am I",
+    "cmd": "whoami",
+    "category": "System"
+  },
+  {
+    "id": "sys002",
+    "label": "Uptime",
+    "cmd": "uptime",
+    "category": "System"
+  },
+  {
+    "id": "sys003",
+    "label": "Disk usage",
+    "cmd": "df -h",
+    "category": "System"
+  },
+  {
+    "id": "sys004",
+    "label": "Memory usage",
+    "cmd": "vm_stat",
+    "category": "System"
+  },
+  {
+    "id": "sys005",
+    "label": "Top processes",
+    "cmd": "ps aux | head -20",
+    "category": "System"
+  },
+  {
+    "id": "sys006",
+    "label": "System info",
+    "cmd": "sw_vers",
+    "category": "System"
+  },
+  {
+    "id": "dock01",
+    "label": "Running containers",
+    "cmd": "docker ps",
+    "category": "Docker"
+  },
+  {
+    "id": "dock02",
+    "label": "All containers",
+    "cmd": "docker ps -a",
+    "category": "Docker"
+  },
+  {
+    "id": "dock03",
+    "label": "Docker images",
+    "cmd": "docker images",
+    "category": "Docker"
+  },
+  {
+    "id": "dock04",
+    "label": "Docker compose status",
+    "cmd": "docker compose ps",
+    "category": "Docker"
+  },
+  {
+    "id": "file01",
+    "label": "List files",
+    "cmd": "ls -la",
+    "category": "Files"
+  },
+  {
+    "id": "file02",
+    "label": "Current directory",
+    "cmd": "pwd",
+    "category": "Files"
+  },
+  {
+    "id": "file03",
+    "label": "Directory sizes",
+    "cmd": "du -sh *",
+    "category": "Files"
+  },
+  {
+    "id": "net001",
+    "label": "Network interfaces",
+    "cmd": "ifconfig",
+    "category": "Network"
+  },
+  {
+    "id": "net002",
+    "label": "Active connections",
+    "cmd": "netstat -an | head -20",
+    "category": "Network"
+  },
+  {
+    "id": "net003",
+    "label": "Tailscale status",
+    "cmd": "tailscale status",
+    "category": "Network"
+  },
+  {
+    "id": "oc001",
+    "label": "Stop OpenClaw Gateway",
+    "cmd": "openclaw gateway stop",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc002",
+    "label": "Start OpenClaw Gateway",
+    "cmd": "openclaw gateway start",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc003",
+    "label": "Restart OpenClaw Gateway",
+    "cmd": "openclaw gateway restart",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc004",
+    "label": "OpenClaw Doctor (Fix)",
+    "cmd": "openclaw doctor --fix",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc005",
+    "label": "OpenClaw Version",
+    "cmd": "openclaw --version",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc006",
+    "label": "Force Restart Gateway (launchctl)",
+    "cmd": "launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc007",
+    "label": "OpenClaw Health",
+    "cmd": "openclaw health",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc008",
+    "label": "OpenClaw Status",
+    "cmd": "openclaw status",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc009",
+    "label": "Check Gateway Process",
+    "cmd": "launchctl list | grep openclaw",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc010",
+    "label": "Gateway Health Endpoint",
+    "cmd": "curl http://127.0.0.1:18789/health",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc011",
+    "label": "Gateway Health (Headers)",
+    "cmd": "curl -I http://127.0.0.1:18789/health",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc012",
+    "label": "Gateway Log (last 20)",
+    "cmd": "tail -20 ~/.openclaw/logs/gateway.log",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc013",
+    "label": "Gateway Error Log (last 50)",
+    "cmd": "tail -50 ~/.openclaw/logs/gateway.err.log",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "oc014",
+    "label": "Watch Gateway Log (live)",
+    "cmd": "tail -f ~/.openclaw/logs/gateway.log",
+    "category": "OpenClaw"
+  },
+  {
+    "id": "ocs01",
+    "label": "Run OpenClaw Update Script",
+    "cmd": "~/atlas-workspace/scripts/update-openclaw.sh",
+    "category": "OpenClaw Scripts"
+  },
+  {
+    "id": "ocs02",
+    "label": "Update Script Help",
+    "cmd": "~/atlas-workspace/scripts/update-openclaw.sh --help",
+    "category": "OpenClaw Scripts"
+  },
+  {
+    "id": "ocs03",
+    "label": "List OpenClaw Backups",
+    "cmd": "ls -lh ~/.openclaw-backups/",
+    "category": "OpenClaw Scripts"
+  },
+  {
+    "id": "ocs04",
+    "label": "Rollback OpenClaw Update",
+    "cmd": "~/atlas-workspace/scripts/update-openclaw.sh --rollback",
+    "category": "OpenClaw Scripts"
+  },
+  {
+    "id": "2a109936",
+    "label": "Start your dock container from ur compose file",
+    "cmd": "docker Compose up -d",
+    "category": "Docker"
+  }
+]
