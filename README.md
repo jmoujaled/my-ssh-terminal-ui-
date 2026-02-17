@@ -4,6 +4,8 @@ A browser-based SSH client for remotely managing any server with SSH enabled. Co
 
 Works with any SSH target — macOS, Linux, cloud VPS (Hostinger, DigitalOcean, AWS, etc.), Raspberry Pi, or any machine running an SSH server. Built as a lightweight alternative to native SSH clients and tools like Apple Screen Sharing.
 
+> **Warning:** This project is intended for **personal LAN or VPN use only**. It is not hardened for public internet exposure. Do not expose this application to the open internet without proper authentication, HTTPS, and network-level access controls. See [Security Considerations](#security-considerations) below.
+
 ---
 
 ## Purpose
@@ -232,13 +234,122 @@ Works with any SSH target:
 
 ---
 
-## Security Notes
+## Security Considerations
 
-- This application is intended for **local/private network use** (LAN or Tailscale)
-- Passwords are transmitted over WebSocket — use behind HTTPS in production
-- Passwords are **never** saved to localStorage or disk
-- The server accepts any SSH host key (`AutoAddPolicy`) — suitable for trusted networks
-- No authentication on the web UI itself — anyone who can reach port 8000 can attempt SSH connections
+This tool provides **direct SSH access through a WebSocket proxy**. It must be deployed with proper precautions.
+
+### Recommended deployment
+
+- Behind a **reverse proxy** (Nginx, Caddy) with authentication
+- Accessible only via **VPN** (Tailscale, WireGuard) or trusted LAN
+- Protected by **IP allowlisting** at the firewall or reverse proxy level
+- Served over **HTTPS** (so WebSocket traffic uses `wss://` and credentials are encrypted in transit)
+- **Rate limiting** enabled to prevent brute-force connection attempts
+
+### What this application does NOT do
+
+- **No web UI authentication** — Anyone who can reach the port can attempt SSH connections
+- **No command sandboxing** — Commands run with full privileges of the SSH user
+- **No SSH host key verification** — Uses Paramiko's `AutoAddPolicy` (accepts any host key on first connect)
+- **No credential storage** — Passwords are never saved to disk or localStorage (by design)
+- **No session logging/audit** — SSH sessions are not recorded
+
+### Threat model
+
+| Concern | Responsibility | Notes |
+|---------|---------------|-------|
+| Authentication to the web UI | **You** (deployer) | Add Nginx basic auth, OAuth proxy, or VPN-only access |
+| SSH credential security | **SSH protocol** | Credentials are handled by Paramiko over the SSH channel |
+| Transport encryption | **You** (deployer) | Use HTTPS/WSS via reverse proxy with TLS certificates |
+| Command authorization | **SSH server** | The remote server's user permissions govern what commands can run |
+| Network access control | **You** (deployer) | Restrict access via firewall, VPN, or IP allowlisting |
+| Host key verification | **Not implemented** | Suitable for trusted networks; not safe for untrusted networks |
+
+### Summary
+
+This application is a **transparent SSH proxy** — it connects you to an SSH server and passes data through. All security enforcement (user permissions, command restrictions, etc.) is handled by the target SSH server. Your responsibility is to ensure only authorized users can reach this web UI.
+
+---
+
+## Deployment
+
+### Local development
+
+Run on demand — no configuration needed:
+
+```bash
+python3 -m uvicorn app:app --reload --host 0.0.0.0 --port 8080
+```
+
+### Behind Nginx (recommended for persistent use)
+
+Example Nginx config with basic auth and HTTPS:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name ssh-terminal.local;
+
+    ssl_certificate     /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    # Basic authentication
+    auth_basic "SSH Terminal";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=ssh_terminal:10m rate=10r/s;
+    limit_req zone=ssh_terminal burst=20 nodelay;
+
+    location / {
+        proxy_pass http://127.0.0.1:2222;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # WebSocket support (required for terminal to work)
+    location /ws/ {
+        proxy_pass http://127.0.0.1:2222;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+Generate the `.htpasswd` file:
+
+```bash
+# Install htpasswd if needed (macOS)
+brew install httpd
+
+# Create password file
+htpasswd -c /etc/nginx/.htpasswd yourusername
+```
+
+### Tailscale-only access (simplest secure option)
+
+If you run this on a machine with Tailscale, bind to the Tailscale interface only:
+
+```bash
+python3 -m uvicorn app:app --host 100.108.208.57 --port 2222
+```
+
+This makes the UI accessible **only** from devices on your Tailscale network — no Nginx or HTTPS needed since Tailscale encrypts all traffic with WireGuard.
+
+### IP allowlisting (macOS firewall)
+
+Restrict access to specific IPs using the macOS packet filter:
+
+```bash
+# Allow only your LAN subnet and Tailscale
+echo "block in on en0 proto tcp to port 2222
+pass in on en0 proto tcp from 192.168.1.0/24 to port 2222
+pass in on utun4 proto tcp to port 2222" | sudo pfctl -ef -
+```
 
 ---
 
