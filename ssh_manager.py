@@ -1,5 +1,6 @@
 import paramiko
 import logging
+from io import StringIO
 from socket import timeout as socket_timeout
 
 logger = logging.getLogger("ssh_manager")
@@ -23,14 +24,46 @@ class SSHManager:
         self.connected = False
         self.channel = None
 
+    def _load_key_from_data(self, key_data, password=None):
+        """
+        Try to load a private key from string data.
+        Supports RSA, Ed25519, ECDSA, and DSA key types.
+        Returns a paramiko key object or raises an exception.
+        """
+        key_classes = [
+            paramiko.RSAKey,
+            paramiko.Ed25519Key,
+            paramiko.ECDSAKey,
+            paramiko.DSSKey,
+        ]
+        last_error = None
+        for key_class in key_classes:
+            try:
+                return key_class.from_private_key(
+                    StringIO(key_data), password=password
+                )
+            except (paramiko.SSHException, ValueError) as e:
+                last_error = e
+                continue
+        raise paramiko.SSHException(
+            f"Could not load key — unsupported key type or invalid format: {last_error}"
+        )
+
     def connect(self, host, port, username, password=None, key_path=None,
-                cols=120, rows=30):
+                key_data=None, cols=120, rows=30):
         """
         Connect to remote server and open a PTY shell.
+        Auth priority: key_data (uploaded) > key_path (file) > password.
         Returns (success, error_message).
         """
         try:
-            if key_path:
+            if key_data:
+                # In-memory key from browser upload (never touches disk)
+                key = self._load_key_from_data(key_data, password=password)
+                self.client.connect(
+                    host, port=port, username=username, pkey=key, timeout=10
+                )
+            elif key_path:
                 key = paramiko.RSAKey.from_private_key_file(key_path)
                 self.client.connect(
                     host, port=port, username=username, pkey=key, timeout=10

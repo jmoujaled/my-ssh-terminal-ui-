@@ -37,6 +37,14 @@ class Settings:
         self.allowed_ips: str = raw_ips
         self.allowed_networks = self._parse_networks(raw_ips) if raw_ips else []
 
+        # --- Server ---
+        self.host: str = os.environ.get("SSH_TERMINAL_HOST", "0.0.0.0")
+        self.port: int = int(os.environ.get("SSH_TERMINAL_PORT", "2222"))
+
+        # --- SSL/TLS (opt-in) ---
+        self.ssl_certfile: str = os.environ.get("SSH_TERMINAL_SSL_CERT", "")
+        self.ssl_keyfile: str = os.environ.get("SSH_TERMINAL_SSL_KEY", "")
+
     def _parse_networks(self, raw: str):
         """Parse comma-separated IPs and CIDRs into network objects."""
         networks = []

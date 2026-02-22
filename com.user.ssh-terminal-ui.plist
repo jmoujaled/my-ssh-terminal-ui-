@@ -9,13 +9,7 @@
     <array>
         <string>/usr/bin/env</string>
         <string>python3</string>
-        <string>-m</string>
-        <string>uvicorn</string>
-        <string>app:app</string>
-        <string>--host</string>
-        <string>0.0.0.0</string>
-        <string>--port</string>
-        <string>2222</string>
+        <string>app.py</string>
     </array>
 
     <key>WorkingDirectory</key>

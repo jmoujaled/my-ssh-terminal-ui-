@@ -65,7 +65,7 @@ xterm.js (browser)  <-->  WebSocket  <-->  FastAPI  <-->  Paramiko channel (SSH 
 
 | Direction | Type | Format | Purpose |
 |-----------|------|--------|---------|
-| Client -> Server | `connect` | JSON | Send connection credentials |
+| Client -> Server | `connect` | JSON | Send connection credentials (host, username, password/key_data) |
 | Client -> Server | `input` | JSON `{type: 'input', data: '...'}` | Forward keystrokes |
 | Client -> Server | `resize` | JSON `{type: 'resize', cols: N, rows: N}` | Resize PTY |
 | Client -> Server | `disconnect` | JSON | Close SSH session |
@@ -101,19 +101,21 @@ simple ssh ui/
 
 ### File breakdown
 
-**`ssh_manager.py`** (~115 lines)
+**`ssh_manager.py`** (~150 lines)
 Simple Paramiko wrapper class with no output parsing:
-- `connect()` — Opens SSH connection + interactive shell with PTY
+- `connect()` — Opens SSH connection + interactive shell with PTY. Supports password, key file, or in-memory key data
+- `_load_key_from_data()` — Loads a private key from string data with multi-type fallback (RSA → Ed25519 → ECDSA → DSA)
 - `read()` — Non-blocking read from the shell channel (returns raw bytes)
 - `write()` — Sends raw bytes to the shell channel (user keystrokes)
 - `resize()` — Resizes the PTY to match frontend terminal dimensions
 - `is_active()` — Checks if the SSH channel is still alive
 - `disconnect()` — Closes channel and SSH client
 
-**`app.py`** (~185 lines)
-FastAPI application with two main components:
-- **WebSocket endpoint** (`/ws/ssh`) — Bidirectional SSH streaming with two concurrent async tasks
+**`app.py`** (~295 lines)
+FastAPI application with three main components:
+- **WebSocket endpoint** (`/ws/ssh`) — Bidirectional SSH streaming with two concurrent async tasks. Supports password and key-based SSH auth
 - **REST API** — CRUD for saved commands (`GET/POST/DELETE /api/commands`)
+- **Entrypoint** — `if __name__ == "__main__"` block starts uvicorn with optional SSL from env vars
 - Uses `ThreadPoolExecutor` for running blocking Paramiko reads in async context
 
 **`static/index.html`** (~895 lines, single file)
@@ -149,9 +151,12 @@ Commands are clicked in the sidebar to **type them into the terminal** without a
 
 - **Real terminal experience** — Full xterm.js rendering with colors, prompts, tab completion, scrollback
 - **Persistent shell session** — `cd` persists, environment variables work, login shell with full PATH
+- **SSH key authentication** — Upload a private key from the browser (RSA, Ed25519, ECDSA, DSA). Keys are read in-memory only — never written to disk or stored in the browser
+- **Password + key auth** — Use password auth, key auth, or key + passphrase. Auth priority: uploaded key > file path > password
+- **Built-in HTTPS/TLS** — Run with SSL certificates directly via env vars, no reverse proxy required
 - **Saved commands sidebar** — Click to pre-fill commands, grouped by collapsible categories
 - **Add new commands** — Modal with category autocomplete (type to filter existing categories or create new ones)
-- **Connection persistence** — Host, port, and username saved to localStorage (never password)
+- **Connection persistence** — Host, port, and username saved to localStorage (never passwords or keys)
 - **Auto-resize** — Terminal automatically fits the browser window, PTY resizes to match
 - **Clickable URLs** — URLs in terminal output are clickable via WebLinksAddon
 - **Live connection status** — Visual indicator (green dot = connected, yellow pulse = connecting, grey = disconnected)
@@ -205,10 +210,19 @@ See **[RUNBOOK.md](RUNBOOK.md)** for all management commands (start, stop, resta
 
 ### Connect
 
+**With password:**
 1. Enter your server's IP address or hostname
 2. Enter port (default: `22`)
 3. Enter your username and password
 4. Click **Connect**
+
+**With SSH key:**
+1. Enter host, port, and username as above
+2. Click the **🔑 Key** button and select your private key file (`id_rsa`, `id_ed25519`, etc.)
+3. If the key has a passphrase, enter it in the password field
+4. Click **Connect**
+
+The key is read in-memory via the browser's FileReader API and sent over the WebSocket. It is never written to disk, never stored in localStorage, and is discarded when you close or refresh the page. Supports RSA, Ed25519, ECDSA, and DSA key types.
 
 Works with any SSH target:
 
@@ -253,6 +267,10 @@ All security features are **disabled by default** so the app works out of the bo
 | `SSH_TERMINAL_SESSION_TIMEOUT` | Idle session timeout in minutes. After this period of inactivity, the session expires and the user is redirected to the login page. | `30` |
 | `SSH_TERMINAL_SECRET_KEY` | Secret key for signing session cookies. Auto-generated on startup if not set (sessions won't survive restarts). | Auto-generated |
 | `SSH_TERMINAL_ALLOWED_IPS` | Comma-separated IP/CIDR allowlist. Only listed IPs can access the app. Supports single IPs and subnets. | Not set (all IPs allowed) |
+| `SSH_TERMINAL_HOST` | Host/IP to bind the server to. | `0.0.0.0` |
+| `SSH_TERMINAL_PORT` | Port to listen on. | `2222` |
+| `SSH_TERMINAL_SSL_CERT` | Path to SSL certificate file (.pem). Both cert and key must be set to enable HTTPS. | Not set (HTTP) |
+| `SSH_TERMINAL_SSL_KEY` | Path to SSL private key file (.pem). Both cert and key must be set to enable HTTPS. | Not set (HTTP) |
 
 **Quick start — enable login with one env var:**
 
@@ -278,7 +296,7 @@ Restart the server and a login page will appear. No code changes needed.
 
 - **No command sandboxing** — Commands run with full privileges of the SSH user
 - **No SSH host key verification** — Uses Paramiko's `AutoAddPolicy` (accepts any host key on first connect)
-- **No credential storage** — SSH passwords are never saved to disk or localStorage (by design)
+- **No credential storage** — SSH passwords and keys are never saved to disk or localStorage (by design)
 - **No session logging/audit** — SSH sessions are not recorded
 - **No user management** — Single admin password, no individual user accounts
 
@@ -290,7 +308,7 @@ Restart the server and a login page will appear. No code changes needed.
 | IP-based access control | **Built-in** (opt-in) | Set `SSH_TERMINAL_ALLOWED_IPS` to restrict by IP/CIDR |
 | Session idle timeout | **Built-in** (opt-in) | Set `SSH_TERMINAL_SESSION_TIMEOUT` (default: 30 min) |
 | SSH credential security | **SSH protocol** | Credentials are handled by Paramiko over the SSH channel |
-| Transport encryption | **You** (deployer) | Use HTTPS/WSS via reverse proxy with TLS certificates |
+| Transport encryption | **Built-in** (opt-in) or **You** | Set `SSH_TERMINAL_SSL_CERT` + `SSH_TERMINAL_SSL_KEY`, or use a reverse proxy |
 | Command authorization | **SSH server** | The remote server's user permissions govern what commands can run |
 | Network access control | **You** (deployer) | Additionally restrict via firewall, VPN, or reverse proxy |
 | Host key verification | **Not implemented** | Suitable for trusted networks; not safe for untrusted networks |
@@ -310,6 +328,26 @@ Run on demand — no configuration needed:
 ```bash
 python3 -m uvicorn app:app --reload --host 0.0.0.0 --port 8080
 ```
+
+### Built-in HTTPS (no reverse proxy needed)
+
+Enable HTTPS directly by setting SSL env vars. This is the simplest way to get encrypted connections:
+
+```bash
+# Generate a self-signed certificate (for testing/LAN use)
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
+
+# Add to .env
+SSH_TERMINAL_SSL_CERT=/path/to/cert.pem
+SSH_TERMINAL_SSL_KEY=/path/to/key.pem
+
+# Start the server (reads SSL config from .env automatically)
+python3 app.py
+```
+
+The server will start with HTTPS on port 2222 (default). Open `https://localhost:2222` in your browser.
+
+For production, use a real certificate from Let's Encrypt or your CA. Self-signed certs will show a browser warning but still encrypt the connection.
 
 ### Behind Nginx (recommended for persistent use)
 

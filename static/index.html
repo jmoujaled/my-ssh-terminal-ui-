@@ -57,7 +57,64 @@
         .host-input { width: 160px; }
         .port-input { width: 55px; }
         .user-input { width: 110px; }
-        .pass-input { width: 150px; }
+        .pass-input { width: 130px; }
+
+        /* SSH Key picker */
+        .key-picker {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .btn-key {
+            padding: 5px 10px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            background: #21262d;
+            color: #8b949e;
+            transition: background 0.15s, border-color 0.15s;
+            white-space: nowrap;
+        }
+
+        .btn-key:hover {
+            background: #30363d;
+            border-color: #484f58;
+        }
+
+        .btn-key.has-key {
+            background: #1a3a2a;
+            border-color: #238636;
+            color: #3fb950;
+        }
+
+        .key-filename {
+            font-size: 11px;
+            color: #58a6ff;
+            font-family: 'SF Mono', monospace;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .btn-key-clear {
+            background: none;
+            border: none;
+            color: #f85149;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0 2px;
+            line-height: 1;
+        }
+
+        .btn-key-clear:hover { color: #ff7b72; }
+
+        .pass-input.dimmed {
+            opacity: 0.4;
+        }
 
         .btn {
             padding: 5px 14px;
@@ -384,6 +441,12 @@
         <input type="text" id="username" class="user-input" placeholder="username">
         <label>Password</label>
         <input type="password" id="password" class="pass-input" placeholder="password">
+        <div class="key-picker">
+            <input type="file" id="keyFileInput" style="display:none" accept=".pem,.key,.pub,id_rsa,id_ed25519,id_ecdsa,id_dsa,*">
+            <button class="btn-key" id="keyBtn" onclick="document.getElementById('keyFileInput').click()" title="Upload SSH private key (in-memory only, never stored)">&#128273; Key</button>
+            <span class="key-filename" id="keyFilename"></span>
+            <button class="btn-key-clear" id="keyClearBtn" onclick="clearKeyFile()" title="Remove key" style="display:none">&times;</button>
+        </div>
         <button id="connectBtn" class="btn btn-connect" onclick="toggleConnection()">Connect</button>
         <div class="status-indicator">
             <div id="statusDot" class="status-dot"></div>
@@ -511,6 +574,37 @@
         // --- State ---
         let ws = null;
         let isConnected = false;
+        let sshKeyData = null;   // In-memory only — never stored to disk or localStorage
+        let sshKeyName = null;
+
+        // --- SSH Key file picker ---
+        document.getElementById('keyFileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                sshKeyData = evt.target.result;
+                sshKeyName = file.name;
+                document.getElementById('keyFilename').textContent = file.name;
+                document.getElementById('keyClearBtn').style.display = '';
+                document.getElementById('keyBtn').classList.add('has-key');
+                document.getElementById('password').classList.add('dimmed');
+                document.getElementById('password').placeholder = 'passphrase (optional)';
+            };
+            reader.readAsText(file);
+        });
+
+        function clearKeyFile() {
+            sshKeyData = null;
+            sshKeyName = null;
+            document.getElementById('keyFileInput').value = '';
+            document.getElementById('keyFilename').textContent = '';
+            document.getElementById('keyClearBtn').style.display = 'none';
+            document.getElementById('keyBtn').classList.remove('has-key');
+            document.getElementById('password').classList.remove('dimmed');
+            document.getElementById('password').placeholder = 'password';
+        }
 
         // --- Load saved connection from localStorage ---
         (function loadSaved() {
@@ -554,12 +648,17 @@
             ws = new WebSocket(`${proto}//${location.host}/ws/ssh`);
 
             ws.onopen = () => {
-                ws.send(JSON.stringify({
+                const connectMsg = {
                     type: 'connect',
                     host, port: parseInt(port), username, password,
                     cols: term.cols,
                     rows: term.rows
-                }));
+                };
+                // Send SSH key data if uploaded (in-memory only, never stored)
+                if (sshKeyData) {
+                    connectMsg.key_data = sshKeyData;
+                }
+                ws.send(JSON.stringify(connectMsg));
             };
 
             ws.onmessage = (event) => {

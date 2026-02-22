@@ -121,6 +121,7 @@ async def ssh_websocket(websocket: WebSocket):
             username=connect_msg["username"],
             password=connect_msg.get("password"),
             key_path=connect_msg.get("key_path"),
+            key_data=connect_msg.get("key_data"),
             cols=int(connect_msg.get("cols", 120)),
             rows=int(connect_msg.get("rows", 30)),
         )
@@ -271,3 +272,24 @@ async def delete_command(cmd_id: str):
     commands = [c for c in commands if c["id"] != cmd_id]
     _save_commands(commands)
     return {"ok": True}
+
+
+# --- Entrypoint (supports built-in HTTPS/TLS via env vars) ---
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn_kwargs = {
+        "app": "app:app",
+        "host": settings.host,
+        "port": settings.port,
+    }
+
+    if settings.ssl_certfile and settings.ssl_keyfile:
+        uvicorn_kwargs["ssl_certfile"] = settings.ssl_certfile
+        uvicorn_kwargs["ssl_keyfile"] = settings.ssl_keyfile
+        print(f"Starting with HTTPS on port {settings.port}")
+    else:
+        print(f"Starting with HTTP on port {settings.port}")
+
+    uvicorn.run(**uvicorn_kwargs)
