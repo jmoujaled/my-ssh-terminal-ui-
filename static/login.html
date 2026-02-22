@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSH Terminal — Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .login-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 40px 32px;
+            width: 380px;
+            max-width: 90vw;
+            text-align: center;
+        }
+
+        .login-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        .login-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #e6edf3;
+            margin-bottom: 6px;
+        }
+
+        .login-subtitle {
+            font-size: 13px;
+            color: #8b949e;
+            margin-bottom: 28px;
+        }
+
+        .form-field {
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        .form-field label {
+            display: block;
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-field input {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .form-field input:focus {
+            border-color: #58a6ff;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #238636;
+            color: #fff;
+            transition: background 0.15s;
+            margin-top: 8px;
+        }
+
+        .btn-login:hover {
+            background: #2ea043;
+        }
+
+        .btn-login:disabled {
+            background: #21262d;
+            color: #484f58;
+            cursor: not-allowed;
+        }
+
+        .error-msg {
+            margin-top: 14px;
+            font-size: 13px;
+            color: #f85149;
+            min-height: 18px;
+        }
+
+        .footer-note {
+            margin-top: 24px;
+            font-size: 11px;
+            color: #484f58;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="login-icon">&#128274;</div>
+        <div class="login-title">SSH Terminal</div>
+        <div class="login-subtitle">Enter the admin password to continue</div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="form-field">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Admin password" autofocus>
+            </div>
+            <button type="submit" class="btn-login" id="loginBtn">Sign In</button>
+        </form>
+
+        <div class="error-msg" id="errorMsg"></div>
+        <div class="footer-note">Access is restricted. Contact the server administrator if you need credentials.</div>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const errorMsg = document.getElementById('errorMsg');
+
+            if (!password) {
+                errorMsg.textContent = 'Please enter a password';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Signing in...';
+            errorMsg.textContent = '';
+
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    errorMsg.textContent = data.detail || 'Invalid password';
+                    btn.disabled = false;
+                    btn.textContent = 'Sign In';
+                    document.getElementById('password').select();
+                }
+            } catch (err) {
+                errorMsg.textContent = 'Connection error. Is the server running?';
+                btn.disabled = false;
+                btn.textContent = 'Sign In';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -447,6 +447,17 @@
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
 
     <script>
+        // --- Auth: redirect to login on 401 ---
+        const _origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const res = await _origFetch.apply(this, args);
+            if (res.status === 401) {
+                window.location.href = '/login';
+                return res;
+            }
+            return res;
+        };
+
         // --- Terminal setup ---
         const term = new Terminal({
             cursorBlink: true,
@@ -566,6 +577,11 @@
                     }
                     if (msg.type === 'error') {
                         term.writeln(`\r\n\x1b[31mError: ${msg.data}\x1b[0m`);
+                        // Session expired — redirect to login after a moment
+                        if (msg.data && msg.data.includes('Session expired')) {
+                            setTimeout(() => { window.location.href = '/login'; }, 2000);
+                            return;
+                        }
                         if (!isConnected) setStatus('disconnected');
                         return;
                     }
@@ -581,7 +597,12 @@
                 term.write(data);
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
+                // Session expired or unauthorized — redirect to login
+                if (event.code === 4401) {
+                    window.location.href = '/login';
+                    return;
+                }
                 if (isConnected) {
                     handleDisconnect();
                     term.writeln('\r\n\x1b[34mConnection closed\x1b[0m');

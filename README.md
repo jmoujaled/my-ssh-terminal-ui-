@@ -82,12 +82,17 @@ xterm.js (browser)  <-->  WebSocket  <-->  FastAPI  <-->  Paramiko channel (SSH 
 simple ssh ui/
 ├── app.py                              # FastAPI server (WebSocket SSH proxy + REST API)
 ├── ssh_manager.py                      # Paramiko SSH wrapper (connect, read, write, resize)
+├── config.py                           # Env-based configuration (loads .env, parses settings)
+├── auth.py                             # Session token creation/verification, password checking
+├── middleware.py                       # IP allowlist + auth middleware (opt-in)
 ├── saved_commands.json                 # Saved commands data (JSON)
 ├── requirements.txt                    # Python dependencies
+├── .env.example                        # Template for security env vars (copy to .env)
 ├── com.user.ssh-terminal-ui.plist      # macOS LaunchAgent (auto-start on boot)
 ├── RUNBOOK.md                          # Operations runbook (start/stop/logs/troubleshooting)
 ├── static/
-│   └── index.html                      # Full UI (HTML + CSS + JavaScript, single file)
+│   ├── index.html                      # Full UI (HTML + CSS + JavaScript, single file)
+│   └── login.html                      # Login page (shown when auth is enabled)
 ├── logs/
 │   ├── stdout.log                      # Application stdout (created at runtime)
 │   └── stderr.log                      # Application stderr (created at runtime)
@@ -236,38 +241,63 @@ Works with any SSH target:
 
 ## Security Considerations
 
-This tool provides **direct SSH access through a WebSocket proxy**. It must be deployed with proper precautions.
+This tool provides **direct SSH access through a WebSocket proxy**. It includes built-in opt-in security features and should be deployed with proper precautions.
+
+### Built-in security features (opt-in via environment variables)
+
+All security features are **disabled by default** so the app works out of the box. Enable them by creating a `.env` file (see `.env.example`):
+
+| Env Variable | Purpose | Default |
+|-------------|---------|---------|
+| `SSH_TERMINAL_ADMIN_PASSWORD` | Set a password to enable the login page. Users must authenticate before accessing the terminal. | Not set (open access) |
+| `SSH_TERMINAL_SESSION_TIMEOUT` | Idle session timeout in minutes. After this period of inactivity, the session expires and the user is redirected to the login page. | `30` |
+| `SSH_TERMINAL_SECRET_KEY` | Secret key for signing session cookies. Auto-generated on startup if not set (sessions won't survive restarts). | Auto-generated |
+| `SSH_TERMINAL_ALLOWED_IPS` | Comma-separated IP/CIDR allowlist. Only listed IPs can access the app. Supports single IPs and subnets. | Not set (all IPs allowed) |
+
+**Quick start — enable login with one env var:**
+
+```bash
+# Copy the template
+cp .env.example .env
+
+# Edit .env and uncomment:
+SSH_TERMINAL_ADMIN_PASSWORD=your-strong-password-here
+```
+
+Restart the server and a login page will appear. No code changes needed.
 
 ### Recommended deployment
 
-- Behind a **reverse proxy** (Nginx, Caddy) with authentication
+- Behind a **reverse proxy** (Nginx, Caddy) with HTTPS
 - Accessible only via **VPN** (Tailscale, WireGuard) or trusted LAN
-- Protected by **IP allowlisting** at the firewall or reverse proxy level
-- Served over **HTTPS** (so WebSocket traffic uses `wss://` and credentials are encrypted in transit)
-- **Rate limiting** enabled to prevent brute-force connection attempts
+- **Admin password enabled** via `SSH_TERMINAL_ADMIN_PASSWORD`
+- **IP allowlisting** via `SSH_TERMINAL_ALLOWED_IPS` and/or firewall rules
+- **Rate limiting** enabled at the reverse proxy level
 
 ### What this application does NOT do
 
-- **No web UI authentication** — Anyone who can reach the port can attempt SSH connections
 - **No command sandboxing** — Commands run with full privileges of the SSH user
 - **No SSH host key verification** — Uses Paramiko's `AutoAddPolicy` (accepts any host key on first connect)
-- **No credential storage** — Passwords are never saved to disk or localStorage (by design)
+- **No credential storage** — SSH passwords are never saved to disk or localStorage (by design)
 - **No session logging/audit** — SSH sessions are not recorded
+- **No user management** — Single admin password, no individual user accounts
 
 ### Threat model
 
 | Concern | Responsibility | Notes |
 |---------|---------------|-------|
-| Authentication to the web UI | **You** (deployer) | Add Nginx basic auth, OAuth proxy, or VPN-only access |
+| Web UI authentication | **Built-in** (opt-in) | Set `SSH_TERMINAL_ADMIN_PASSWORD` to enable login page |
+| IP-based access control | **Built-in** (opt-in) | Set `SSH_TERMINAL_ALLOWED_IPS` to restrict by IP/CIDR |
+| Session idle timeout | **Built-in** (opt-in) | Set `SSH_TERMINAL_SESSION_TIMEOUT` (default: 30 min) |
 | SSH credential security | **SSH protocol** | Credentials are handled by Paramiko over the SSH channel |
 | Transport encryption | **You** (deployer) | Use HTTPS/WSS via reverse proxy with TLS certificates |
 | Command authorization | **SSH server** | The remote server's user permissions govern what commands can run |
-| Network access control | **You** (deployer) | Restrict access via firewall, VPN, or IP allowlisting |
+| Network access control | **You** (deployer) | Additionally restrict via firewall, VPN, or reverse proxy |
 | Host key verification | **Not implemented** | Suitable for trusted networks; not safe for untrusted networks |
 
 ### Summary
 
-This application is a **transparent SSH proxy** — it connects you to an SSH server and passes data through. All security enforcement (user permissions, command restrictions, etc.) is handled by the target SSH server. Your responsibility is to ensure only authorized users can reach this web UI.
+This application is a **transparent SSH proxy** — it connects you to an SSH server and passes data through. Built-in security features (login page, session expiry, IP allowlist) protect access to the web UI. All command-level security (user permissions, command restrictions) is handled by the target SSH server.
 
 ---
 

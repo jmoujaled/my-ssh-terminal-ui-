@@ -4,17 +4,76 @@ import asyncio
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ssh_manager import SSHManager
+from config import settings
+from auth import check_password, create_session, verify_session
+from middleware import IPAllowlistMiddleware, AuthMiddleware
 
 app = FastAPI()
 executor = ThreadPoolExecutor(max_workers=8)
 
 COMMANDS_FILE = Path(__file__).parent / "saved_commands.json"
+
+
+# --- Middleware (opt-in, only active when env vars are set) ---
+
+if settings.allowed_ips:
+    app.add_middleware(
+        IPAllowlistMiddleware,
+        allowed_networks=settings.allowed_networks,
+    )
+
+if settings.auth_enabled:
+    app.add_middleware(
+        AuthMiddleware,
+        secret_key=settings.secret_key,
+        max_age_seconds=settings.session_timeout_minutes * 60,
+    )
+
+
+# --- Auth routes (only functional when SSH_TERMINAL_ADMIN_PASSWORD is set) ---
+
+@app.get("/login")
+async def login_page():
+    if not settings.auth_enabled:
+        return RedirectResponse("/")
+    return FileResponse(Path(__file__).parent / "static" / "login.html")
+
+
+@app.post("/api/auth/login")
+async def login(request: Request):
+    if not settings.auth_enabled:
+        return JSONResponse({"detail": "Auth not enabled"}, status_code=400)
+
+    body = await request.json()
+    password = body.get("password", "")
+
+    if not check_password(password):
+        return JSONResponse({"detail": "Invalid password"}, status_code=401)
+
+    token = create_session(settings.secret_key, settings.session_timeout_minutes)
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        key="ssh_terminal_session",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=settings.session_timeout_minutes * 60,
+        secure=request.url.scheme == "https",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+async def logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("ssh_terminal_session")
+    return response
 
 
 # --- Static file serving ---
@@ -31,6 +90,19 @@ app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), na
 
 @app.websocket("/ws/ssh")
 async def ssh_websocket(websocket: WebSocket):
+    # --- Auth check for WebSocket (middleware doesn't cover WS reliably) ---
+    if settings.auth_enabled:
+        cookie_value = websocket.cookies.get("ssh_terminal_session")
+        max_age = settings.session_timeout_minutes * 60
+        if not cookie_value or not verify_session(cookie_value, settings.secret_key, max_age):
+            await websocket.close(code=4401, reason="Unauthorized")
+            return
+
+    # --- IP check for WebSocket ---
+    if settings.allowed_ips and not settings.is_ip_allowed(websocket.client.host):
+        await websocket.close(code=4403, reason="Forbidden")
+        return
+
     await websocket.accept()
     manager = SSHManager()
     loop = asyncio.get_event_loop()
@@ -59,33 +131,32 @@ async def ssh_websocket(websocket: WebSocket):
 
         await websocket.send_json({"type": "connected"})
 
-        # Now switch to raw bidirectional streaming.
-        # Two concurrent tasks:
-        #   1. Read from SSH channel → send to WebSocket (as binary text)
-        #   2. Read from WebSocket → write to SSH channel
+        # Track last activity for idle timeout
+        last_activity = loop.time()
+
+        # --- Concurrent streaming tasks ---
 
         async def ssh_to_ws():
             """Read SSH channel output and forward to WebSocket."""
             while manager.is_active():
                 data = await loop.run_in_executor(executor, manager.read)
                 if data:
-                    # Send as text (xterm.js expects text)
                     await websocket.send_text(data.decode("utf-8", errors="replace"))
                 else:
                     await asyncio.sleep(0.02)
 
         async def ws_to_ssh():
             """Read WebSocket messages and forward to SSH channel."""
+            nonlocal last_activity
             while True:
                 msg = await websocket.receive()
+                last_activity = loop.time()
 
                 if msg.get("type") == "websocket.disconnect":
                     break
 
-                # Text messages: could be raw keystrokes or JSON control messages
                 text = msg.get("text", "")
                 if text:
-                    # Try to parse as JSON (for control messages like resize/disconnect)
                     try:
                         parsed = json.loads(text)
                         if isinstance(parsed, dict):
@@ -100,26 +171,43 @@ async def ssh_websocket(websocket: WebSocket):
                             elif parsed.get("type") == "disconnect":
                                 break
                             elif parsed.get("type") == "input":
-                                # Explicit input message
                                 manager.write(parsed["data"].encode("utf-8"))
                                 continue
                     except (json.JSONDecodeError, ValueError):
                         pass
 
-                    # If not a JSON control message, treat as raw terminal input
                     manager.write(text.encode("utf-8"))
 
-                # Binary messages: forward directly
                 bdata = msg.get("bytes")
                 if bdata:
                     manager.write(bdata)
 
-        # Run both tasks concurrently; when either finishes, cancel the other
-        ssh_task = asyncio.create_task(ssh_to_ws())
-        ws_task = asyncio.create_task(ws_to_ssh())
+        async def idle_watchdog():
+            """Close connection if idle too long (only when auth is enabled)."""
+            timeout_seconds = settings.session_timeout_minutes * 60
+            while True:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                elapsed = loop.time() - last_activity
+                if elapsed > timeout_seconds:
+                    try:
+                        await websocket.send_json({
+                            "type": "error",
+                            "data": "Session expired due to inactivity"
+                        })
+                    except Exception:
+                        pass
+                    break
+
+        # Build task list
+        tasks = [
+            asyncio.create_task(ssh_to_ws()),
+            asyncio.create_task(ws_to_ssh()),
+        ]
+        if settings.auth_enabled:
+            tasks.append(asyncio.create_task(idle_watchdog()))
 
         done, pending = await asyncio.wait(
-            [ssh_task, ws_task],
+            tasks,
             return_when=asyncio.FIRST_COMPLETED
         )
 
